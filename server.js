@@ -1,14 +1,27 @@
 require("dotenv").config();
+
 const express = require("express");
 const cors = require("cors");
 const multer = require("multer");
 const nodemailer = require("nodemailer");
+const fs = require("fs");
 const path = require("path");
 
 const app = express();
 
 app.use(cors());
 app.use(express.json());
+
+/* =========================
+   ENSURE UPLOADS FOLDER
+========================= */
+
+const uploadDir = path.join(__dirname, "uploads");
+
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true });
+  console.log("Uploads folder created");
+}
 
 /* =========================
    TEST ROUTE
@@ -23,17 +36,18 @@ app.get("/", (req, res) => {
 ========================= */
 
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, "uploads/");
+  destination: function (req, file, cb) {
+    cb(null, uploadDir);
   },
-  filename: (req, file, cb) => {
-    cb(null, Date.now() + "-" + file.originalname);
+  filename: function (req, file, cb) {
+    const uniqueName = Date.now() + "-" + file.originalname;
+    cb(null, uniqueName);
   }
 });
 
 const upload = multer({
-  storage,
-  limits: { fileSize: 5 * 1024 * 1024 } // 5MB limit
+  storage: storage,
+  limits: { fileSize: 5 * 1024 * 1024 }
 });
 
 /* =========================
@@ -53,6 +67,7 @@ const transporter = nodemailer.createTransport({
 ========================= */
 
 app.post("/apply-job", upload.single("resume"), async (req, res) => {
+
   try {
 
     console.log("Form Data:", req.body);
@@ -77,13 +92,14 @@ app.post("/apply-job", upload.single("resume"), async (req, res) => {
       });
     }
 
+    const filePath = path.join(uploadDir, resumeFile.filename);
+
     const mailOptions = {
       from: process.env.EMAIL_USER,
       to: "info@iconicbusinesssolution.com",
       subject: `New Job Application - ${position}`,
       html: `
         <h2>New Job Application</h2>
-
         <p><b>Name:</b> ${fullName}</p>
         <p><b>Email:</b> ${email}</p>
         <p><b>Phone:</b> ${phone}</p>
@@ -96,12 +112,14 @@ app.post("/apply-job", upload.single("resume"), async (req, res) => {
       attachments: [
         {
           filename: resumeFile.originalname,
-          path: resumeFile.path
+          path: filePath
         }
       ]
     };
 
     await transporter.sendMail(mailOptions);
+
+    console.log("Email sent successfully");
 
     res.json({
       success: true,
@@ -118,13 +136,14 @@ app.post("/apply-job", upload.single("resume"), async (req, res) => {
     });
 
   }
+
 });
 
 /* =========================
    SERVER START
 ========================= */
 
-const PORT = 5000;
+const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
