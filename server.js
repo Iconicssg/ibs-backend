@@ -3,14 +3,20 @@ require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const multer = require("multer");
-const nodemailer = require("nodemailer");
 const fs = require("fs");
 const path = require("path");
+const { Resend } = require("resend");
 
 const app = express();
 
 app.use(cors());
 app.use(express.json());
+
+/* =========================
+   RESEND CONFIG
+========================= */
+
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 /* =========================
    ENSURE UPLOADS FOLDER
@@ -20,7 +26,6 @@ const uploadDir = path.join(__dirname, "uploads");
 
 if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
-  console.log("Uploads folder created");
 }
 
 /* =========================
@@ -36,14 +41,9 @@ app.get("/", (req, res) => {
 ========================= */
 
 const storage = multer.diskStorage({
-destination: function (req, file, cb) {
-
-  if (!fs.existsSync(uploadDir)) {
-    fs.mkdirSync(uploadDir, { recursive: true });
-  }
-
-  cb(null, uploadDir);
-},
+  destination: function (req, file, cb) {
+    cb(null, uploadDir);
+  },
   filename: function (req, file, cb) {
     const uniqueName = Date.now() + "-" + file.originalname;
     cb(null, uniqueName);
@@ -56,30 +56,11 @@ const upload = multer({
 });
 
 /* =========================
-   EMAIL CONFIG
-========================= */
-
-const transporter = nodemailer.createTransport({
-  host: "smtp.gmail.com",
-  port: 587,
-  secure: false,
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS
-  },
-  tls: {
-    rejectUnauthorized: false
-  }
-});
-/* =========================
    APPLY JOB API
 ========================= */
 
 app.post("/apply-job", upload.single("resume"), async (req, res) => {
-
   try {
-
-    console.log("Form Data:", req.body);
 
     const {
       fullName,
@@ -97,14 +78,16 @@ app.post("/apply-job", upload.single("resume"), async (req, res) => {
     if (!resumeFile) {
       return res.status(400).json({
         success: false,
-        message: "Resume file is required"
+        message: "Resume file required"
       });
     }
 
     const filePath = path.join(uploadDir, resumeFile.filename);
 
-    const mailOptions = {
-      from: process.env.EMAIL_USER,
+    const fileBuffer = fs.readFileSync(filePath);
+
+    await resend.emails.send({
+      from: "Iconic Business <info@iconicbusinesssolution.com>",
       to: "info@iconicbusinesssolution.com",
       subject: `New Job Application - ${position}`,
       html: `
@@ -121,14 +104,10 @@ app.post("/apply-job", upload.single("resume"), async (req, res) => {
       attachments: [
         {
           filename: resumeFile.originalname,
-          path: filePath
+          content: fileBuffer
         }
       ]
-    };
-
-    await transporter.sendMail(mailOptions);
-
-    console.log("Email sent successfully");
+    });
 
     res.json({
       success: true,
@@ -141,11 +120,10 @@ app.post("/apply-job", upload.single("resume"), async (req, res) => {
 
     res.status(500).json({
       success: false,
-      message: "Error sending application"
+      message: "Email sending failed"
     });
 
   }
-
 });
 
 /* =========================
@@ -155,5 +133,5 @@ app.post("/apply-job", upload.single("resume"), async (req, res) => {
 const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`Server running on port ${PORT}`);
 });
